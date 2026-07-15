@@ -1034,6 +1034,7 @@ func cliRunCommandAllowed(args []string) bool {
 		"add-circleback",
 		"add-granola",
 		"add-imap",
+		"add-matrix",
 		"add-o365",
 		"add-synctech-sms-drive",
 		"add-teams",
@@ -1064,6 +1065,7 @@ func cliRunCommandAllowed(args []string) bool {
 		"sync-calendar",
 		"sync-circleback",
 		"sync-granola",
+		"sync-matrix",
 		"sync-synctech-sms",
 		"sync-teams":
 		return true
