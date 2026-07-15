@@ -2501,6 +2501,13 @@ func (s *Store) ReplaceMessageBeeperAttachments(messageID int64, refs []Attachme
 	return s.replaceMessageAttachmentsWhere(messageID, `source_attachment_id LIKE 'beeper:%'`, false, refs)
 }
 
+// ReplaceMessageMatrixAttachments replaces Matrix-managed attachment rows.
+// Rows without a content hash are retryable download markers whose storage
+// path contains the original mxc:// URI.
+func (s *Store) ReplaceMessageMatrixAttachments(messageID int64, refs []AttachmentRef) error {
+	return s.replaceMessageAttachmentsWhere(messageID, `source_attachment_id LIKE 'matrix:%'`, false, refs)
+}
+
 // MessageBeeperAttachments returns the message's existing Beeper-managed
 // attachment rows keyed by source_attachment_id, so re-persisting a message
 // can keep already-downloaded media without re-fetching it.

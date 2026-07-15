@@ -288,6 +288,26 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if cfg.Matrix.Enabled && cfg.Matrix.Schedule == "" {
+		logger.Warn("matrix is enabled but has no schedule — the daemon will not sync it",
+			"hint", `set schedule = "* * * * *" in the [matrix] table`)
+	}
+	if cfg.Matrix.Enabled && cfg.Matrix.Schedule != "" {
+		if err := sched.AddJob(scheduler.Job{
+			Name:     "matrix",
+			Schedule: cfg.Matrix.Schedule,
+			Run: func(ctx context.Context) error {
+				return runScheduledSource(ctx, attachmentMaint, true, func(ctx context.Context) error {
+					return runConfiguredMatrixSync(ctx, s)
+				})
+			},
+		}); err != nil {
+			logger.Error("failed to schedule Matrix sync", "error", err)
+		} else {
+			logger.Info("scheduled Matrix sync", "schedule", cfg.Matrix.Schedule)
+		}
+	}
+
 	// Meeting sources (Granola/Circleback) mirror the gcal treatment: warn
 	// when enabled but unscheduled, then register the scheduled ones.
 	for _, src := range cfg.Granola {

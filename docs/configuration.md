@@ -337,6 +337,30 @@ max_media_mb = 100                # per-attachment download cap (MiB)
 | `media` | `true` | Download attachment bytes (failed downloads retry via `backfill-beeper-media`) |
 | `max_media_mb` | `100` | Per-attachment download cap in MiB (over-cap media leaves a retry marker) |
 
+### `[matrix]`
+
+Archive joined rooms through a dedicated Matrix account. The access token is
+stored separately under the tokens directory; do not put it in `config.toml`.
+
+```toml
+[matrix]
+homeserver = "https://matrix.example.org"
+user_id = "@archive:example.org"
+enabled = true
+schedule = "* * * * *"
+media = true
+max_media_mb = 100
+```
+
+| Key | Default | Description |
+|---|---:|---|
+| `homeserver` | — | Matrix client API base URL |
+| `user_id` | — | Dedicated archive account |
+| `enabled` | `false` | Enable scheduled Matrix synchronization |
+| `schedule` | — | Five-field cron schedule |
+| `media` | `true` | Download `mxc://` media into attachment storage |
+| `max_media_mb` | `100` | Per-media download cap in MiB |
+
 ### Granola Sources
 
 Granola meeting-notes sync is configured with top-level `[[granola]]` entries.

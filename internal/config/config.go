@@ -192,6 +192,7 @@ type Config struct {
 	SynctechSMS SynctechSMSConfig  `toml:"synctech_sms"`
 	GCal        []GCalSource       `toml:"gcal"`
 	Beeper      BeeperConfig       `toml:"beeper"`
+	Matrix      MatrixConfig       `toml:"matrix"`
 	Granola     []GranolaSource    `toml:"granola"`
 	Circleback  []CirclebackSource `toml:"circleback"`
 	Backup      BackupConfig       `toml:"backup"`
@@ -701,6 +702,27 @@ type BeeperConfig struct {
 	Media *bool `toml:"media"`
 	// MaxMediaMB caps individual attachment downloads in MiB (0 = 100).
 	MaxMediaMB int `toml:"max_media_mb"`
+}
+
+// MatrixConfig configures one Matrix archive identity ([matrix] table).
+type MatrixConfig struct {
+	Homeserver string `toml:"homeserver"`
+	UserID     string `toml:"user_id"`
+	Enabled    bool   `toml:"enabled"`
+	Schedule   string `toml:"schedule"`
+	Media      *bool  `toml:"media"`
+	MaxMediaMB int    `toml:"max_media_mb"`
+}
+
+func (m MatrixConfig) MediaEnabled() bool {
+	return m.Media == nil || *m.Media
+}
+
+func (m MatrixConfig) MaxMediaBytes() int64 {
+	if m.MaxMediaMB > 0 {
+		return int64(m.MaxMediaMB) << 20
+	}
+	return 100 << 20
 }
 
 // MediaEnabled reports whether attachment download is on (default true).

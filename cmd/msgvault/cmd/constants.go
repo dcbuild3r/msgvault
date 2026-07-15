@@ -9,6 +9,7 @@ const (
 	sourceTypeTeams      = "teams"
 	sourceTypeCalendar   = "gcal"
 	sourceTypeBeeper     = "beeper"
+	sourceTypeMatrix     = "matrix"
 	sourceTypeGranola    = "granola"
 	sourceTypeCircleback = "circleback"
 )

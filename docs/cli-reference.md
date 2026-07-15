@@ -369,6 +369,40 @@ After adding, sync with `msgvault sync-beeper`.
 
 ---
 
+## add-matrix
+
+Register a dedicated Matrix archive identity and validate its access token.
+
+```bash
+MSGVAULT_MATRIX_TOKEN="..." msgvault add-matrix \
+  --homeserver https://matrix.example.org \
+  --user-id @archive:example.org
+msgvault add-matrix --token-file /run/credentials/matrix-token
+```
+
+The token is stored in a protected runtime credential file, not in TOML.
+
+---
+
+## sync-matrix
+
+Synchronize joined Matrix rooms, preserving raw events and normalized search
+records. History pagination and `/sync` cursors are resumable.
+
+```bash
+msgvault sync-matrix
+msgvault sync-matrix --backfill-pages 10
+msgvault sync-matrix --full --no-media
+```
+
+| Flag | Default | Description |
+|---|---:|---|
+| `--full` | `false` | Reset cursors and repeat available history backfill |
+| `--backfill-pages` | `0` | Maximum pages per room; zero means all |
+| `--no-media` | `false` | Skip media downloads for this run |
+
+---
+
 ## sync-beeper
 
 Sync chats from Beeper Desktop for every registered Beeper account (all
