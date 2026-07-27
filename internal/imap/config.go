@@ -26,6 +26,7 @@ type Config struct {
 	Port                    int        `json:"port"`
 	TLS                     bool       `json:"tls"`      // Implicit TLS (IMAPS, port 993)
 	STARTTLS                bool       `json:"starttls"` // STARTTLS upgrade (port 143)
+	TLSSkipVerify           bool       `json:"tls_skip_verify,omitempty"`
 	Username                string     `json:"username"`
 	AuthMethod              AuthMethod `json:"auth_method,omitempty"`
 	RequireFolderStates     bool       `json:"require_folder_states,omitempty"`

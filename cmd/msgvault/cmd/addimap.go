@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"strings"
 
@@ -56,6 +57,7 @@ var (
 	imapUsername             string
 	imapNoTLS                bool
 	imapSTARTTLS             bool
+	imapTLSSkipVerify        bool
 	imapStartFromNow         bool
 	imapExcludedMailboxes    []string
 	noDefaultIdentityAddImap bool
@@ -95,6 +97,12 @@ Examples:
 			if imapNoTLS && imapSTARTTLS {
 				return usageErr(cmd, errors.New("--no-tls and --starttls are mutually exclusive"))
 			}
+			if imapTLSSkipVerify && imapNoTLS {
+				return usageErr(cmd, errors.New("--tls-skip-verify requires TLS or STARTTLS"))
+			}
+			if imapTLSSkipVerify && !isLoopbackIMAPHost(imapHost) {
+				return usageErr(cmd, errors.New("--tls-skip-verify is restricted to loopback IMAP hosts"))
+			}
 			if !isDaemonCLISubprocess() {
 				password, err := readAddIMAPPassword(cmd, true)
 				if err != nil {
@@ -111,6 +119,7 @@ Examples:
 				Port:                    imapPort,
 				TLS:                     !imapNoTLS && !imapSTARTTLS,
 				STARTTLS:                imapSTARTTLS,
+				TLSSkipVerify:           imapTLSSkipVerify,
 				Username:                imapUsername,
 				RequireFolderStates:     imapStartFromNow,
 				ExcludedMailboxMessages: imapExcludedMailboxes,
@@ -217,10 +226,20 @@ Examples:
 	cmd.Flags().StringVar(&imapUsername, "username", "", "IMAP username / email address (required)")
 	cmd.Flags().BoolVar(&imapNoTLS, "no-tls", false, "Disable TLS (plain connection, not recommended)")
 	cmd.Flags().BoolVar(&imapSTARTTLS, "starttls", false, "Use STARTTLS instead of implicit TLS")
+	cmd.Flags().BoolVar(&imapTLSSkipVerify, "tls-skip-verify", false, "Accept a self-signed TLS certificate (loopback hosts only)")
 	cmd.Flags().BoolVar(&imapStartFromNow, "start-from-now", false, "Record current mailbox UID states and sync only messages added afterward")
 	cmd.Flags().StringSliceVar(&imapExcludedMailboxes, "exclude-mailbox-messages", nil, "Exclude every message present in this mailbox (repeatable or comma-separated)")
 	cmd.Flags().BoolVar(&noDefaultIdentityAddImap, "no-default-identity", false, noDefaultIdentityHelp)
 	return cmd
+}
+
+func isLoopbackIMAPHost(host string) bool {
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func validateExcludedMailboxNames(

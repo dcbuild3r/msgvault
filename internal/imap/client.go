@@ -2,6 +2,7 @@ package imap
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -149,6 +150,13 @@ func (c *Client) connect(ctx context.Context) error {
 	c.logger.Debug("connecting to IMAP server", "addr", addr, "tls", c.config.TLS, "starttls", c.config.STARTTLS)
 
 	imapOpts := &imapclient.Options{}
+	if c.config.TLS || c.config.STARTTLS {
+		imapOpts.TLSConfig = &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			ServerName:         normalizeHost(c.config.Host),
+			InsecureSkipVerify: c.config.TLSSkipVerify, //nolint:gosec // Explicit opt-in for loopback-only self-signed servers.
+		}
+	}
 	var (
 		conn *imapclient.Client
 		err  error

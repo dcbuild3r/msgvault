@@ -156,6 +156,8 @@ func TestConfigRoundTripPreservesStartFromNowSafety(t *testing.T) {
 		Host:                    "127.0.0.1",
 		Port:                    1143,
 		Username:                "user@example.com",
+		STARTTLS:                true,
+		TLSSkipVerify:           true,
 		RequireFolderStates:     true,
 		ExcludedMailboxMessages: []string{"Imported History"},
 	}

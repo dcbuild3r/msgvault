@@ -220,6 +220,7 @@ func TestAddIMAPUsesDaemonRunnerAndForwardsPasswordEnv(t *testing.T) {
 	savedUsername := imapUsername
 	savedNoTLS := imapNoTLS
 	savedStartTLS := imapSTARTTLS
+	savedTLSSkipVerify := imapTLSSkipVerify
 	savedStartFromNow := imapStartFromNow
 	savedExcludedMailboxes := imapExcludedMailboxes
 	savedNoDefaultIdentity := noDefaultIdentityAddImap
@@ -229,6 +230,7 @@ func TestAddIMAPUsesDaemonRunnerAndForwardsPasswordEnv(t *testing.T) {
 		imapUsername = savedUsername
 		imapNoTLS = savedNoTLS
 		imapSTARTTLS = savedStartTLS
+		imapTLSSkipVerify = savedTLSSkipVerify
 		imapStartFromNow = savedStartFromNow
 		imapExcludedMailboxes = savedExcludedMailboxes
 		noDefaultIdentityAddImap = savedNoDefaultIdentity
@@ -255,4 +257,13 @@ func TestAddIMAPUsesDaemonRunnerAndForwardsPasswordEnv(t *testing.T) {
 	assert.Equal(1, int(requests.Load()), "runner endpoint calls")
 	assert.Equal("IMAP account added successfully!\n", stdout.String(), "stdout")
 	assert.Contains(stderr.String(), "Using password from MSGVAULT_IMAP_PASSWORD", "stderr")
+}
+
+func TestIsLoopbackIMAPHost(t *testing.T) {
+	assert.True(t, isLoopbackIMAPHost("127.0.0.1"))
+	assert.True(t, isLoopbackIMAPHost("::1"))
+	assert.True(t, isLoopbackIMAPHost("[::1]"))
+	assert.True(t, isLoopbackIMAPHost("localhost"))
+	assert.False(t, isLoopbackIMAPHost("imap.example.com"))
+	assert.False(t, isLoopbackIMAPHost("192.0.2.1"))
 }
