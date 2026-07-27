@@ -150,3 +150,20 @@ func TestConfigAuthMethod_XOAuth2(t *testing.T) {
 	assert.Equal(t, AuthXOAuth2, cfg.AuthMethod, "AuthMethod")
 	assert.Equal(t, AuthXOAuth2, cfg.EffectiveAuthMethod(), "EffectiveAuthMethod()")
 }
+
+func TestConfigRoundTripPreservesStartFromNowSafety(t *testing.T) {
+	want := &Config{
+		Host:                    "127.0.0.1",
+		Port:                    1143,
+		Username:                "user@example.com",
+		RequireFolderStates:     true,
+		ExcludedMailboxMessages: []string{"Imported History"},
+	}
+
+	encoded, err := want.ToJSON()
+	require.NoError(t, err)
+	got, err := ConfigFromJSON(encoded)
+	require.NoError(t, err)
+
+	assert.Equal(t, want, got)
+}

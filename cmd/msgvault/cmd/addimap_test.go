@@ -9,7 +9,21 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	imapclient "go.kenn.io/msgvault/internal/imap"
 )
+
+func TestValidateExcludedMailboxNamesRejectsMissingMailbox(t *testing.T) {
+	states := map[string]imapclient.FolderState{
+		"INBOX":            {UIDValidity: 1, UIDNext: 2},
+		"Imported History": {UIDValidity: 3, UIDNext: 4},
+	}
+
+	require.NoError(t, validateExcludedMailboxNames(
+		[]string{"Imported History"}, states,
+	))
+	err := validateExcludedMailboxNames([]string{"Imported Histor"}, states)
+	require.ErrorContains(t, err, `excluded mailbox "Imported Histor" was not found`)
+}
 
 func TestPasswordPromptStrategy(t *testing.T) {
 	tests := []struct {
@@ -191,9 +205,11 @@ func TestAddIMAPUsesDaemonRunnerAndForwardsPasswordEnv(t *testing.T) {
 	server, requests := newDaemonCLIRunnerTestServer(t, func(req daemonCLIRunTestRequest) {
 		assert.Equal([]string{
 			"add-imap",
+			"--exclude-mailbox-messages=Imported History",
 			"--host=" + host,
 			"--no-tls",
 			"--port=1",
+			"--start-from-now",
 			"--username=alice@example.com",
 		}, req.Args, "args")
 		assert.Equal(map[string]string{"MSGVAULT_IMAP_PASSWORD": "secret"}, req.Env, "env")
@@ -204,6 +220,8 @@ func TestAddIMAPUsesDaemonRunnerAndForwardsPasswordEnv(t *testing.T) {
 	savedUsername := imapUsername
 	savedNoTLS := imapNoTLS
 	savedStartTLS := imapSTARTTLS
+	savedStartFromNow := imapStartFromNow
+	savedExcludedMailboxes := imapExcludedMailboxes
 	savedNoDefaultIdentity := noDefaultIdentityAddImap
 	t.Cleanup(func() {
 		imapHost = savedHost
@@ -211,6 +229,8 @@ func TestAddIMAPUsesDaemonRunnerAndForwardsPasswordEnv(t *testing.T) {
 		imapUsername = savedUsername
 		imapNoTLS = savedNoTLS
 		imapSTARTTLS = savedStartTLS
+		imapStartFromNow = savedStartFromNow
+		imapExcludedMailboxes = savedExcludedMailboxes
 		noDefaultIdentityAddImap = savedNoDefaultIdentity
 	})
 	configureRemoteDaemonForTest(t, server.URL)
@@ -226,6 +246,8 @@ func TestAddIMAPUsesDaemonRunnerAndForwardsPasswordEnv(t *testing.T) {
 		"--port", "1",
 		"--username", "alice@example.com",
 		"--no-tls",
+		"--start-from-now",
+		"--exclude-mailbox-messages", "Imported History",
 	})
 
 	require.NoError(cmd.Execute(), "add-imap")

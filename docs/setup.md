@@ -158,6 +158,40 @@ For STARTTLS connections (port 143), add `--starttls`:
 msgvault add-imap --host mail.example.com --username you@example.com --starttls
 ```
 
+To begin archiving only messages added after setup, capture a fail-closed
+mailbox baseline while adding the account:
+
+```bash
+msgvault add-imap \
+  --host 127.0.0.1 \
+  --port 1143 \
+  --username you@example.com \
+  --no-tls \
+  --start-from-now
+```
+
+`--start-from-now` stores each mailbox's current UIDVALIDITY/UIDNEXT without
+importing historical messages. Future syncs stop with an error instead of
+replaying history if a mailbox is added, its UID space resets, or the saved
+baseline otherwise becomes unsafe. Rerun `add-imap --start-from-now` with the
+same connection settings to accept the current mailbox state and resume.
+
+Use `--exclude-mailbox-messages` when every message present in a mailbox must
+be excluded even if the server also exposes it through an All Mail folder:
+
+```bash
+msgvault add-imap \
+  --host 127.0.0.1 \
+  --port 1143 \
+  --username you@example.com \
+  --no-tls \
+  --start-from-now \
+  --exclude-mailbox-messages "Imported History"
+```
+
+The mailbox name is validated during setup and must match the IMAP server
+exactly. The flag is repeatable or accepts comma-separated names.
+
 After adding the account, sync it the same way as a Gmail account:
 
 ```bash

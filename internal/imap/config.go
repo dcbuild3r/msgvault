@@ -22,12 +22,14 @@ const (
 
 // Config holds connection settings for an IMAP server.
 type Config struct {
-	Host       string     `json:"host"`
-	Port       int        `json:"port"`
-	TLS        bool       `json:"tls"`      // Implicit TLS (IMAPS, port 993)
-	STARTTLS   bool       `json:"starttls"` // STARTTLS upgrade (port 143)
-	Username   string     `json:"username"`
-	AuthMethod AuthMethod `json:"auth_method,omitempty"`
+	Host                    string     `json:"host"`
+	Port                    int        `json:"port"`
+	TLS                     bool       `json:"tls"`      // Implicit TLS (IMAPS, port 993)
+	STARTTLS                bool       `json:"starttls"` // STARTTLS upgrade (port 143)
+	Username                string     `json:"username"`
+	AuthMethod              AuthMethod `json:"auth_method,omitempty"`
+	RequireFolderStates     bool       `json:"require_folder_states,omitempty"`
+	ExcludedMailboxMessages []string   `json:"excluded_mailbox_messages,omitempty"`
 }
 
 // EffectiveAuthMethod returns the auth method, defaulting to password

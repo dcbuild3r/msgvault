@@ -46,6 +46,27 @@ func WithListProgress(fn func(done, total int, mailbox string, found, unchanged 
 	return func(c *Client) { c.listProgress = fn }
 }
 
+// WithRequiredFolderStates makes saved folder states a safety boundary rather
+// than a best-effort optimization. A missing state, UIDVALIDITY change, or UID
+// rollback fails the sync closed instead of re-enumerating historical mail.
+func WithRequiredFolderStates() Option {
+	return func(c *Client) { c.requireFolderStates = true }
+}
+
+// WithExcludedMailboxMessages suppresses every message that is a member of
+// one of the named IMAP mailboxes, even when the same message is also exposed
+// through an All Mail mailbox.
+func WithExcludedMailboxMessages(mailboxes []string) Option {
+	return func(c *Client) {
+		c.excludedMailboxes = make(map[string]bool, len(mailboxes))
+		for _, mailbox := range mailboxes {
+			if mailbox != "" {
+				c.excludedMailboxes[mailbox] = true
+			}
+		}
+	}
+}
+
 // fetchChunkSize is the maximum number of UIDs per UID FETCH command.
 // Large FETCH sets cause server-side timeouts on big mailboxes; chunking
 // keeps each round-trip short.
@@ -76,10 +97,13 @@ type Client struct {
 	allMailFolder       string               // mailbox with \All attribute (empty if not detected)
 	msgIDToLabels       map[string][]string  // RFC822 Message-ID → mailbox memberships
 	seenRFC822IDs       map[string]bool      // dedup across All Mail + Trash/Spam
+	excludedMailboxes   map[string]bool      // mailbox membership excludes a message from ingest
+	excludedMessageIDs  map[string]bool      // RFC822 Message-IDs found in excluded mailboxes
 	since               time.Time            // IMAP SINCE date filter (zero = no filter)
 	before              time.Time            // IMAP BEFORE date filter (zero = no filter)
 
 	priorFolderStates    map[string]FolderState // saved states from the last completed sync
+	requireFolderStates  bool                   // fail closed when the saved baseline is invalid
 	observedFolderStates map[string]FolderState // states captured during this session's listing
 	folderStateSave      func(string, FolderState)
 	pendingFolderStates  map[string]FolderState
@@ -102,6 +126,12 @@ func NewClient(cfg *Config, password string, opts ...Option) *Client {
 		config:   cfg,
 		password: password,
 		logger:   slog.Default(),
+	}
+	if cfg.RequireFolderStates {
+		WithRequiredFolderStates()(c)
+	}
+	if len(cfg.ExcludedMailboxMessages) > 0 {
+		WithExcludedMailboxMessages(cfg.ExcludedMailboxMessages)(c)
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -445,9 +475,13 @@ func (c *Client) fetchMailboxMessageIDs(
 // Message-ID headers to build a Message-ID → mailbox membership map.
 // Caller must hold mu.
 func (c *Client) buildLabelMap(
-	ctx context.Context, allMailboxes []string,
+	ctx context.Context,
+	allMailboxes []string,
+	folderStatuses map[string]FolderState,
+	trackFolders bool,
 ) (bool, error) {
 	c.msgIDToLabels = make(map[string][]string)
+	c.excludedMessageIDs = make(map[string]bool)
 	complete := true
 
 	for _, mailbox := range allMailboxes {
@@ -458,7 +492,20 @@ func (c *Client) buildLabelMap(
 			continue
 		}
 
-		uids, err := c.enumerateMailbox(ctx, mailbox, 0)
+		var minUID imap.UID
+		if trackFolders {
+			status, statusOK := folderStatuses[mailbox]
+			prior, priorOK := c.priorFolderStates[mailbox]
+			if statusOK && priorOK &&
+				prior.UIDValidity == status.UIDValidity &&
+				prior.UIDNext <= status.UIDNext {
+				if prior.UIDNext == status.UIDNext {
+					continue
+				}
+				minUID = imap.UID(prior.UIDNext)
+			}
+		}
+		uids, err := c.enumerateMailbox(ctx, mailbox, minUID)
 		if err != nil {
 			complete = false
 			c.logger.Warn("skipping mailbox for label map",
@@ -478,6 +525,10 @@ func (c *Client) buildLabelMap(
 		}
 
 		for msgID := range msgIDs {
+			if c.excludedMailboxes[mailbox] {
+				c.excludedMessageIDs[msgID] = true
+				continue
+			}
 			c.msgIDToLabels[msgID] = append(
 				c.msgIDToLabels[msgID], mailbox)
 		}
@@ -510,7 +561,12 @@ func (c *Client) buildMessageListCache(ctx context.Context) error {
 	}
 
 	// Determine which mailboxes to list for canonical message IDs.
-	listMailboxes := allMailboxes
+	listMailboxes := make([]string, 0, len(allMailboxes))
+	for _, mailbox := range allMailboxes {
+		if !c.excludedMailboxes[mailbox] {
+			listMailboxes = append(listMailboxes, mailbox)
+		}
+	}
 	isGmailAllMail := false
 	if c.allMailFolder != "" {
 		isGmailAllMail = strings.HasPrefix(c.allMailFolder, "[Gmail]/")
@@ -542,6 +598,9 @@ func (c *Client) buildMessageListCache(ctx context.Context) error {
 	if trackFolders {
 		c.observedFolderStates = make(map[string]FolderState, len(allMailboxes))
 		folderStatuses, unchangedStatuses = c.observeFolderStates(ctx, allMailboxes)
+		if err := c.validateRequiredFolderStates(allMailboxes, folderStatuses); err != nil {
+			return err
+		}
 		if c.allMailFolder != "" &&
 			len(folderStatuses) == len(allMailboxes) &&
 			unchangedStatuses == len(allMailboxes) {
@@ -573,7 +632,9 @@ func (c *Client) buildMessageListCache(ctx context.Context) error {
 			"total_mailboxes", len(allMailboxes))
 
 		var err error
-		labelMapComplete, err = c.buildLabelMap(ctx, allMailboxes)
+		labelMapComplete, err = c.buildLabelMap(
+			ctx, allMailboxes, folderStatuses, trackFolders,
+		)
 		if err != nil {
 			return err
 		}
@@ -587,7 +648,7 @@ func (c *Client) buildMessageListCache(ctx context.Context) error {
 		var observed *FolderState
 		var trackState FolderState
 		var canTrackFolder bool
-		if trackFolders && c.allMailFolder == "" {
+		if trackFolders {
 			if status, ok := folderStatuses[mailbox]; ok {
 				observed = &status
 				trackState = status
@@ -605,11 +666,6 @@ func (c *Client) buildMessageListCache(ctx context.Context) error {
 					// Only new messages need listing.
 					minUID = imap.UID(prior.UIDNext)
 				}
-			}
-		} else if trackFolders && c.allMailFolder != "" {
-			if status, ok := folderStatuses[mailbox]; ok {
-				trackState = status
-				canTrackFolder = true
 			}
 		}
 

@@ -14,16 +14,22 @@ import (
 
 func newTestClient(t *testing.T, addr string, opts ...Option) *Client {
 	t.Helper()
+	return newTestClientWithConfig(t, addr, Config{}, opts...)
+}
+
+func newTestClientWithConfig(
+	t *testing.T, addr string, cfg Config, opts ...Option,
+) *Client {
+	t.Helper()
 	host, portStr, err := net.SplitHostPort(addr)
 	require.NoError(t, err)
 	port, err := strconv.Atoi(portStr)
 	require.NoError(t, err)
 
-	client := NewClient(&Config{
-		Host:     host,
-		Port:     port,
-		Username: testutil.IMAPTestUsername,
-	}, testutil.IMAPTestPassword, opts...)
+	cfg.Host = host
+	cfg.Port = port
+	cfg.Username = testutil.IMAPTestUsername
+	client := NewClient(&cfg, testutil.IMAPTestPassword, opts...)
 	t.Cleanup(func() { _ = client.Close() })
 	return client
 }
@@ -64,6 +70,25 @@ func TestListMessages_RecordsFolderStates(t *testing.T) {
 	assert.Equal(uint32(3), states["INBOX"].UIDNext)
 	assert.Equal(uint32(4), states["Archive"].UIDNext)
 	assert.NotZero(states["INBOX"].UIDValidity)
+}
+
+func TestSnapshotFolderStates_RecordsStateWithoutListingMessages(t *testing.T) {
+	require := require.New(t)
+	assert := assert.New(t)
+	addr, _ := testutil.StartIMAPMemServer(t, map[string]int{"INBOX": 2, "Archive": 3})
+	client := newTestClient(t, addr)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	states, err := client.SnapshotFolderStates(ctx)
+	require.NoError(err)
+
+	require.Contains(states, "INBOX")
+	require.Contains(states, "Archive")
+	assert.Equal(uint32(3), states["INBOX"].UIDNext)
+	assert.Equal(uint32(4), states["Archive"].UIDNext)
+	assert.Empty(client.messageListCache,
+		"capturing a start-from-now baseline must not list messages for import")
 }
 
 func TestListMessages_SkipsUnchangedFolders(t *testing.T) {
@@ -167,6 +192,31 @@ func TestListMessages_UIDValidityChangeForcesFullRescan(t *testing.T) {
 	assert.Len(t, ids, 2, "UIDVALIDITY mismatch must trigger full enumeration")
 }
 
+func TestListMessages_RequiredBaselineFailsClosedOnUIDValidityChange(t *testing.T) {
+	require := require.New(t)
+	addr, _ := testutil.StartIMAPMemServer(t, map[string]int{"INBOX": 2})
+
+	first := newTestClient(t, addr)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	saved, err := first.SnapshotFolderStates(ctx)
+	require.NoError(err)
+	require.NoError(first.Close())
+
+	stale := map[string]FolderState{
+		"INBOX": {
+			UIDValidity: saved["INBOX"].UIDValidity + 1,
+			UIDNext:     saved["INBOX"].UIDNext,
+		},
+	}
+	second := newTestClientWithConfig(t, addr, Config{
+		RequireFolderStates: true,
+	}, WithFolderStates(stale))
+
+	_, err = second.ListMessages(ctx, "", "")
+	require.ErrorContains(err, "IMAP baseline is no longer valid")
+}
+
 func TestListMessages_DateFilterDisablesFolderTracking(t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
@@ -210,6 +260,125 @@ func TestListMessages_AllMailboxRecordsFolderStatesForNoopResync(t *testing.T) {
 	assert.Empty(ids, "unchanged folders must not be re-enumerated when an All Mail folder exists")
 	assert.Equal(saved, second.ObservedFolderStates())
 	assert.Nil(second.msgIDToLabels, "a no-op resync must not build the All Mail label map")
+}
+
+func TestListMessages_AllMailboxListsOnlyUIDsAfterRequiredBaseline(t *testing.T) {
+	require := require.New(t)
+	assert := assert.New(t)
+	addr, user := testutil.StartIMAPMemServer(t, map[string]int{"All Mail": 2, "Projects": 1})
+
+	first := newTestClient(t, addr)
+	first.mailboxCache = []string{"All Mail", "Projects"}
+	first.allMailFolder = "All Mail"
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	saved, err := first.SnapshotFolderStates(ctx)
+	require.NoError(err)
+	require.NoError(first.Close())
+
+	testutil.AppendIMAPMessage(t, user, "All Mail")
+
+	second := newTestClient(t, addr,
+		WithFolderStates(saved),
+		WithRequiredFolderStates())
+	second.mailboxCache = []string{"All Mail", "Projects"}
+	second.allMailFolder = "All Mail"
+
+	ids := listAllMessages(t, second)
+	assert.Equal([]string{"All Mail|3"}, ids,
+		"All Mail must honor the saved UIDNEXT boundary")
+}
+
+func TestListMessages_ExcludesMessagesPresentInConfiguredMailbox(t *testing.T) {
+	require := require.New(t)
+	assert := assert.New(t)
+	addr, user := testutil.StartIMAPMemServer(t, map[string]int{
+		"All Mail":         0,
+		"Imported History": 0,
+	})
+	excluded := []byte(
+		"Message-ID: <excluded@example.com>\r\n" +
+			"From: alice@example.com\r\nTo: bob@example.com\r\n\r\nexcluded\r\n",
+	)
+	included := []byte(
+		"Message-ID: <included@example.com>\r\n" +
+			"From: alice@example.com\r\nTo: bob@example.com\r\n\r\nincluded\r\n",
+	)
+	testutil.AppendIMAPRawMessage(t, user, "All Mail", excluded)
+	testutil.AppendIMAPRawMessage(t, user, "All Mail", included)
+	testutil.AppendIMAPRawMessage(t, user, "Imported History", excluded)
+
+	client := newTestClientWithConfig(t, addr, Config{
+		ExcludedMailboxMessages: []string{"Imported History"},
+	})
+	client.mailboxCache = []string{"All Mail", "Imported History"}
+	client.allMailFolder = "All Mail"
+
+	ids := listAllMessages(t, client)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	results, err := client.GetMessagesRawBatchWithErrors(ctx, ids)
+	require.NoError(err)
+
+	var imported []string
+	for _, result := range results {
+		if result.Message != nil && len(result.Message.Raw) > 0 {
+			imported = append(imported, result.ID)
+		}
+	}
+	assert.Equal([]string{"All Mail|2"}, imported,
+		"a message present in an excluded mailbox must be suppressed everywhere")
+}
+
+func TestListMessages_RequiredBaselineExcludesNewMailboxMembers(t *testing.T) {
+	require := require.New(t)
+	assert := assert.New(t)
+	addr, user := testutil.StartIMAPMemServer(t, map[string]int{
+		"All Mail":         1,
+		"Imported History": 1,
+	})
+
+	baselineClient := newTestClient(t, addr,
+		WithExcludedMailboxMessages([]string{"Imported History"}))
+	baselineClient.mailboxCache = []string{"All Mail", "Imported History"}
+	baselineClient.allMailFolder = "All Mail"
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	saved, err := baselineClient.SnapshotFolderStates(ctx)
+	require.NoError(err)
+	require.NoError(baselineClient.Close())
+
+	excluded := []byte(
+		"Message-ID: <new-excluded@example.com>\r\n" +
+			"From: alice@example.com\r\nTo: bob@example.com\r\n\r\nexcluded\r\n",
+	)
+	included := []byte(
+		"Message-ID: <new-included@example.com>\r\n" +
+			"From: alice@example.com\r\nTo: bob@example.com\r\n\r\nincluded\r\n",
+	)
+	testutil.AppendIMAPRawMessage(t, user, "All Mail", excluded)
+	testutil.AppendIMAPRawMessage(t, user, "All Mail", included)
+	testutil.AppendIMAPRawMessage(t, user, "Imported History", excluded)
+
+	client := newTestClient(t, addr,
+		WithFolderStates(saved),
+		WithRequiredFolderStates(),
+		WithExcludedMailboxMessages([]string{"Imported History"}))
+	client.mailboxCache = []string{"All Mail", "Imported History"}
+	client.allMailFolder = "All Mail"
+
+	ids := listAllMessages(t, client)
+	results, err := client.GetMessagesRawBatchWithErrors(ctx, ids)
+	require.NoError(err)
+
+	var imported []string
+	for _, result := range results {
+		if result.Message != nil && len(result.Message.Raw) > 0 {
+			imported = append(imported, result.ID)
+		}
+	}
+	assert.Equal([]string{"All Mail|3"}, imported,
+		"only the new message outside the excluded mailbox should be imported")
 }
 
 func TestAcknowledgeMessagesFlushesFolderStateWhenFolderComplete(t *testing.T) {

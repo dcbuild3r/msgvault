@@ -29,6 +29,12 @@ func (l imapLiteral) Size() int64 { return int64(l.Len()) }
 func AppendIMAPMessage(t *testing.T, user *imapmemserver.User, mailbox string) {
 	t.Helper()
 	body := []byte("From: alice@example.com\r\nTo: bob@example.com\r\n\r\nbody\r\n")
+	AppendIMAPRawMessage(t, user, mailbox, body)
+}
+
+// AppendIMAPRawMessage appends the supplied RFC822 message to a mailbox.
+func AppendIMAPRawMessage(t *testing.T, user *imapmemserver.User, mailbox string, body []byte) {
+	t.Helper()
 	_, err := user.Append(mailbox, imapLiteral{bytes.NewReader(body)}, &imap.AppendOptions{})
 	require.NoError(t, err)
 }

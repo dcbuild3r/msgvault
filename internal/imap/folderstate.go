@@ -6,6 +6,7 @@ import (
 	"maps"
 
 	imap "github.com/emersion/go-imap/v2"
+	"github.com/emersion/go-imap/v2/imapclient"
 )
 
 // FolderState is the change-detection state of one mailbox: the
@@ -16,6 +17,31 @@ import (
 type FolderState struct {
 	UIDValidity uint32
 	UIDNext     uint32
+}
+
+// SnapshotFolderStates returns the current UIDVALIDITY/UIDNEXT pair for every
+// selectable mailbox without enumerating or fetching any messages. Callers can
+// persist this snapshot as a start-from-now baseline before enabling sync.
+func (c *Client) SnapshotFolderStates(ctx context.Context) (map[string]FolderState, error) {
+	var states map[string]FolderState
+	err := c.withConn(ctx, func(_ *imapclient.Client) error {
+		mailboxes, err := c.listMailboxesLocked()
+		if err != nil {
+			return err
+		}
+		states, _ = c.observeFolderStates(ctx, mailboxes)
+		if len(states) != len(mailboxes) {
+			return fmt.Errorf(
+				"snapshot IMAP folder states: observed %d of %d selectable mailboxes",
+				len(states), len(mailboxes),
+			)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return states, nil
 }
 
 // WithFolderStates provides per-mailbox states saved after the last
@@ -33,6 +59,37 @@ func WithFolderStates(states map[string]FolderState) Option {
 // messages for a mailbox have been safely handled by the syncer.
 func WithFolderStateSave(fn func(string, FolderState)) Option {
 	return func(c *Client) { c.folderStateSave = fn }
+}
+
+func (c *Client) validateRequiredFolderStates(
+	mailboxes []string, current map[string]FolderState,
+) error {
+	if !c.requireFolderStates {
+		return nil
+	}
+	for _, mailbox := range mailboxes {
+		prior, ok := c.priorFolderStates[mailbox]
+		if !ok {
+			return fmt.Errorf(
+				"IMAP baseline is no longer valid: mailbox %q has no saved state; rebaseline before syncing",
+				mailbox,
+			)
+		}
+		observed, ok := current[mailbox]
+		if !ok {
+			return fmt.Errorf(
+				"IMAP baseline is no longer valid: mailbox %q status is unavailable; retry or rebaseline",
+				mailbox,
+			)
+		}
+		if prior.UIDValidity != observed.UIDValidity || prior.UIDNext > observed.UIDNext {
+			return fmt.Errorf(
+				"IMAP baseline is no longer valid: mailbox %q UID state changed; rebaseline before syncing",
+				mailbox,
+			)
+		}
+	}
+	return nil
 }
 
 // ObservedFolderStates returns the per-mailbox states captured during

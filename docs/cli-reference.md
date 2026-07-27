@@ -93,9 +93,16 @@ It tests the connection before saving credentials.
 | `--port` | `993` | IMAP server port (993 for TLS, 143 for STARTTLS/plain) |
 | `--starttls` | `false` | Use STARTTLS instead of implicit TLS |
 | `--no-tls` | `false` | Disable TLS entirely (plaintext, not recommended) |
+| `--start-from-now` | `false` | Record a fail-closed UID baseline and skip historical messages |
+| `--exclude-mailbox-messages` | none | Exclude every message present in the exact mailbox name; repeatable or comma-separated |
 | `--no-default-identity` | `false` | Do not auto-confirm the username as this account's "me" identity |
 
 Credentials are stored in `tokens/imap_<hash>.json` with restricted file permissions (0600). Use app-specific passwords when your provider supports them.
+
+When `--start-from-now` is active, a missing mailbox state, newly created
+mailbox, UIDVALIDITY reset, or UIDNEXT rollback stops synchronization instead
+of falling back to a historical scan. Rerun `add-imap --start-from-now` with
+the same connection settings to establish a new accepted baseline.
 
 After adding an account, sync it with `msgvault sync-full`. IMAP accounts use the same `sync` and `sync-full` commands as Gmail. See [Setup Guide](/setup/#add-an-imap-account) for a walkthrough.
 

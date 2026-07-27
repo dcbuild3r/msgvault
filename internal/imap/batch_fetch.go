@@ -101,6 +101,11 @@ func (c *Client) applyFetchResults(
 		if c.seenRFC822IDs != nil || c.msgIDToLabels != nil {
 			rfc822MessageID = rawMIMEMessageID(rawMIME)
 		}
+		if rfc822MessageID != "" && c.excludedMessageIDs[rfc822MessageID] {
+			results[idx].Message = &gmailapi.RawMessage{ID: msgID}
+			results[idx].Err = nil
+			continue
+		}
 		if c.seenRFC822IDs != nil &&
 			rfc822MessageID != "" {
 			if c.seenRFC822IDs[rfc822MessageID] {

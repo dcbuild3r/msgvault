@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.kenn.io/msgvault/internal/clirun"
 	imapclient "go.kenn.io/msgvault/internal/imap"
+	"go.kenn.io/msgvault/internal/store"
 )
 
 // passwordMethod describes how to read the password.
@@ -55,6 +56,8 @@ var (
 	imapUsername             string
 	imapNoTLS                bool
 	imapSTARTTLS             bool
+	imapStartFromNow         bool
+	imapExcludedMailboxes    []string
 	noDefaultIdentityAddImap bool
 )
 
@@ -104,11 +107,13 @@ Examples:
 
 			// Build IMAP config
 			imapCfg := &imapclient.Config{
-				Host:     imapHost,
-				Port:     imapPort,
-				TLS:      !imapNoTLS && !imapSTARTTLS,
-				STARTTLS: imapSTARTTLS,
-				Username: imapUsername,
+				Host:                    imapHost,
+				Port:                    imapPort,
+				TLS:                     !imapNoTLS && !imapSTARTTLS,
+				STARTTLS:                imapSTARTTLS,
+				Username:                imapUsername,
+				RequireFolderStates:     imapStartFromNow,
+				ExcludedMailboxMessages: imapExcludedMailboxes,
 			}
 
 			password, err := readAddIMAPPassword(cmd, false)
@@ -120,10 +125,23 @@ Examples:
 			fmt.Printf("Testing connection to %s...\n", imapCfg.Addr())
 			imapClient := imapclient.NewClient(imapCfg, password, imapclient.WithLogger(logger))
 			profile, err := imapClient.GetProfile(cmd.Context())
-			_ = imapClient.Close()
 			if err != nil {
+				_ = imapClient.Close()
 				return fmt.Errorf("connection test failed: %w", err)
 			}
+			var baseline map[string]imapclient.FolderState
+			if imapStartFromNow || len(imapExcludedMailboxes) > 0 {
+				baseline, err = imapClient.SnapshotFolderStates(cmd.Context())
+				if err != nil {
+					_ = imapClient.Close()
+					return fmt.Errorf("inspect IMAP mailboxes: %w", err)
+				}
+				if err := validateExcludedMailboxNames(imapExcludedMailboxes, baseline); err != nil {
+					_ = imapClient.Close()
+					return err
+				}
+			}
+			_ = imapClient.Close()
 			fmt.Printf("Connected successfully as %s\n", profile.EmailAddress)
 
 			s, cleanup, err := openWritableStoreAndInitForIngest()
@@ -158,6 +176,19 @@ Examples:
 			if err := s.UpdateSourceDisplayName(source.ID, imapUsername); err != nil {
 				return fmt.Errorf("set display name: %w", err)
 			}
+			if imapStartFromNow {
+				states := make([]store.IMAPFolderState, 0, len(baseline))
+				for mailbox, state := range baseline {
+					states = append(states, store.IMAPFolderState{
+						Mailbox:     mailbox,
+						UIDValidity: state.UIDValidity,
+						UIDNext:     state.UIDNext,
+					})
+				}
+				if err := s.UpsertIMAPFolderStates(source.ID, states); err != nil {
+					return fmt.Errorf("save start-from-now baseline: %w", err)
+				}
+			}
 
 			// Auto-default-identity must run BEFORE the legacy migration
 			// retry — see comment in account_identity.go.
@@ -171,6 +202,9 @@ Examples:
 			fmt.Printf("\nIMAP account added successfully!\n")
 			fmt.Printf("  Identifier: %s\n", identifier)
 			fmt.Printf("  Note: Password stored on disk at %s\n", imapclient.CredentialsPath(cfg.TokensDir(), identifier))
+			if imapStartFromNow {
+				fmt.Printf("  Baseline: %d mailboxes; historical messages will not be imported\n", len(baseline))
+			}
 			fmt.Println()
 			fmt.Println("You can now run:")
 			fmt.Printf("  msgvault sync-full %s\n", identifier)
@@ -183,8 +217,24 @@ Examples:
 	cmd.Flags().StringVar(&imapUsername, "username", "", "IMAP username / email address (required)")
 	cmd.Flags().BoolVar(&imapNoTLS, "no-tls", false, "Disable TLS (plain connection, not recommended)")
 	cmd.Flags().BoolVar(&imapSTARTTLS, "starttls", false, "Use STARTTLS instead of implicit TLS")
+	cmd.Flags().BoolVar(&imapStartFromNow, "start-from-now", false, "Record current mailbox UID states and sync only messages added afterward")
+	cmd.Flags().StringSliceVar(&imapExcludedMailboxes, "exclude-mailbox-messages", nil, "Exclude every message present in this mailbox (repeatable or comma-separated)")
 	cmd.Flags().BoolVar(&noDefaultIdentityAddImap, "no-default-identity", false, noDefaultIdentityHelp)
 	return cmd
+}
+
+func validateExcludedMailboxNames(
+	requested []string, states map[string]imapclient.FolderState,
+) error {
+	for _, mailbox := range requested {
+		if _, ok := states[mailbox]; !ok {
+			return fmt.Errorf(
+				"excluded mailbox %q was not found; use the exact IMAP mailbox name",
+				mailbox,
+			)
+		}
+	}
+	return nil
 }
 
 func readAddIMAPPassword(cmd *cobra.Command, announceEnv bool) (string, error) {
