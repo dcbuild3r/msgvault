@@ -601,7 +601,14 @@ func (s *Syncer) parseToModel(sourceID int64, raw *gmail.RawMessage, threadID st
 		msg.InternalDate = sql.NullTime{Time: t, Valid: true}
 	}
 	if !parsed.Date.IsZero() {
-		msg.SentAt = sql.NullTime{Time: parsed.Date, Valid: true}
+		sentAt := parsed.Date
+		// A small number of automated senders emit syntactically valid but
+		// impossible years. Prefer Gmail's trusted delivery timestamp when the
+		// header claims the message was sent more than a year after delivery.
+		if msg.InternalDate.Valid && sentAt.After(msg.InternalDate.Time.AddDate(1, 0, 0)) {
+			sentAt = msg.InternalDate.Time
+		}
+		msg.SentAt = sql.NullTime{Time: sentAt, Valid: true}
 	} else if msg.InternalDate.Valid {
 		// Fall back to InternalDate if Date header couldn't be parsed
 		msg.SentAt = msg.InternalDate

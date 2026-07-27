@@ -1044,6 +1044,31 @@ func TestFullSyncDateFallbackToInternalDate(t *testing.T) {
 	assertDateFallback(t, env.Store, "msg-bad-date", "2024-01-15", "12:00:00")
 }
 
+func TestFullSyncFutureDateFallsBackToInternalDate(t *testing.T) {
+	env := newTestEnv(t)
+
+	futureDateMIME := testemail.NewMessage().
+		Subject("Impossible Future Date").
+		Date("Wed, 25 Sep 2611 20:22:00 GMT").
+		Body("Message with a parseable but impossible future date.").
+		Bytes()
+
+	env.Mock.Profile.MessagesTotal = 1
+	env.Mock.Profile.HistoryID = 12345
+	env.Mock.Messages["msg-future-date"] = &gmail.RawMessage{
+		ID:           "msg-future-date",
+		ThreadID:     "thread-future-date",
+		LabelIDs:     []string{"INBOX"},
+		Raw:          futureDateMIME,
+		InternalDate: 1762826676000, // 2025-11-11T02:04:36Z
+	}
+	env.Mock.MessagePages = [][]string{{"msg-future-date"}}
+
+	runFullSync(t, env)
+
+	assertDateFallback(t, env.Store, "msg-future-date", "2025-11-11", "02:04:36")
+}
+
 func TestFullSyncEmptyRawMIME(t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
