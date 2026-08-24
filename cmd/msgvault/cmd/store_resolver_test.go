@@ -238,17 +238,23 @@ func TestOpenHTTPStoreUsesServerAPIKeyForLocalDaemon(t *testing.T) {
 	withStoreResolverConfig(t, localCfg)
 
 	var gotAPIKey string
+	var healthProbeCalled bool
 	mux := http.NewServeMux()
 	mux.Handle("/api/ping", daemon.NewPingHandler(daemon.PingHandlerOptions{
 		Service: daemonService,
 		Version: Version,
 	}))
-	mux.HandleFunc("/api/v1/stats", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/health", func(w http.ResponseWriter, r *http.Request) {
+		healthProbeCalled = true
 		gotAPIKey = r.Header.Get("X-Api-Key")
 		if gotAPIKey != localCfg.Server.APIKey {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+	mux.HandleFunc("/api/v1/stats", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"total_messages":7}`))
 	})
@@ -291,6 +297,7 @@ func TestOpenHTTPStoreUsesServerAPIKeyForLocalDaemon(t *testing.T) {
 	assert.Equal(HTTPStoreLocalDaemon, info.Kind)
 	assert.Equal(int64(7), stats.MessageCount)
 	assert.Equal(localCfg.Server.APIKey, gotAPIKey)
+	assert.True(healthProbeCalled, "local daemon auth must use the lightweight health route")
 }
 
 func TestOpenHTTPStoreRejectsLocalDaemonWithStaleServerAPIKey(t *testing.T) {

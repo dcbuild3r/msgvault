@@ -569,19 +569,37 @@ func probeLocalDaemonAuth(ctx context.Context, rt *DaemonRuntime, c *config.Conf
 	probeCtx, cancel := context.WithTimeout(ctx, localDaemonAuthProbeTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, url+"/api/v1/stats", nil)
-	if err != nil {
-		return fmt.Errorf("create local daemon auth probe: %w", err)
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set(localDaemonAuthProbeHeader, localDaemonAuthProbeValue)
-	if c.Server.APIKey != "" {
-		req.Header.Set("X-Api-Key", c.Server.APIKey)
-	}
+	// /api/v1/stats used to be the authenticated probe, but it performs
+	// several full-archive count queries and can exceed the normal request
+	// budget on a large archive. The authenticated health route is designed
+	// for readiness checks and does not touch the archive tables. Keep a
+	// one-way fallback for older daemons that predate /api/v1/health.
+	probePaths := []string{"/api/v1/health", "/api/v1/stats"}
+	var resp *http.Response
+	for i, path := range probePaths {
+		req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, url+path, nil)
+		if err != nil {
+			return fmt.Errorf("create local daemon auth probe: %w", err)
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set(localDaemonAuthProbeHeader, localDaemonAuthProbeValue)
+		if c.Server.APIKey != "" {
+			req.Header.Set("X-Api-Key", c.Server.APIKey)
+		}
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("probe local daemon authentication at %s: %w", url, err)
+		resp, err = http.DefaultClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("probe local daemon authentication at %s: %w", url, err)
+		}
+		if resp.StatusCode == http.StatusNotFound && i == 0 {
+			_ = resp.Body.Close()
+			resp = nil
+			continue
+		}
+		break
+	}
+	if resp == nil {
+		return fmt.Errorf("probe local daemon authentication at %s: no response", url)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
