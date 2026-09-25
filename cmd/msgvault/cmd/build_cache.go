@@ -1240,7 +1240,15 @@ func globalConfigFlagArgs() []string {
 // PostgreSQL DSNs. The build runs in a subprocess (see buildCacheSubprocess)
 // to keep DuckDB's bundled SQLite library out of a long-lived daemon's
 // address space (issue #379).
+var buildCacheSubprocessForScheduledSync = buildCacheSubprocess
+
 func rebuildCacheAfterScheduledSync(ctx context.Context, identifier string) {
+	if cfg.Analytics.Engine == config.AnalyticsEngineSQL {
+		logger.Info("skipping analytics cache rebuild after scheduled sync",
+			"identifier", identifier, "engine", cfg.Analytics.Engine)
+		return
+	}
+
 	dbPath := cfg.DatabaseDSN()
 	if store.IsPostgresURL(dbPath) {
 		return
@@ -1253,7 +1261,7 @@ func rebuildCacheAfterScheduledSync(ctx context.Context, identifier string) {
 	logger.Info("rebuilding cache after sync",
 		"identifier", identifier, "reason", staleness.Reason,
 		"full_rebuild", staleness.FullRebuild)
-	if err := buildCacheSubprocess(ctx, staleness.FullRebuild); err != nil {
+	if err := buildCacheSubprocessForScheduledSync(ctx, staleness.FullRebuild); err != nil {
 		logger.Error("cache build failed", "error", err)
 		// Don't fail the sync for cache build errors.
 	} else {

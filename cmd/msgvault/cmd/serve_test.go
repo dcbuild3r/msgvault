@@ -368,6 +368,24 @@ func TestOpenDaemonAnalyticsEngineForceSQLSkipsCacheBuild(t *testing.T) {
 	assert.Equal(api.AnalyticsModeSQL, mode, "engine=sql is a deliberate live-SQL choice")
 }
 
+func TestRebuildCacheAfterScheduledSyncSkipsSQLEngine(t *testing.T) {
+	savedCfg := cfg
+	cfg = &config.Config{Analytics: config.AnalyticsConfig{Engine: config.AnalyticsEngineSQL}}
+	t.Cleanup(func() { cfg = savedCfg })
+
+	called := false
+	savedBuild := buildCacheSubprocessForScheduledSync
+	buildCacheSubprocessForScheduledSync = func(context.Context, bool) error {
+		called = true
+		return nil
+	}
+	t.Cleanup(func() { buildCacheSubprocessForScheduledSync = savedBuild })
+
+	rebuildCacheAfterScheduledSync(context.Background(), "account@example.com")
+
+	assert.False(t, called, "SQL analytics must not rebuild the Parquet cache after scheduled sync")
+}
+
 func TestOpenDaemonAnalyticsEngineSkipsCacheBuildWhenDisabled(t *testing.T) {
 	require := require.New(t)
 	assert := assert.New(t)
