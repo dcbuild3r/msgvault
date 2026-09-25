@@ -153,6 +153,48 @@ func (imp *Importer) Sync(ctx context.Context, opts ImportOptions) (sum *ImportS
 	return sum, nil
 }
 
+// ReconcileRoom replays bounded Matrix history for one joined room without
+// changing the incremental /sync cursor. Event IDs make repeated runs safe.
+func (imp *Importer) ReconcileRoom(ctx context.Context, roomID string, pages int, opts ImportOptions) (*ImportSummary, error) {
+	if imp.store == nil || imp.client == nil {
+		return nil, errors.New("Matrix importer requires store and client")
+	}
+	if roomID == "" || pages <= 0 {
+		return nil, errors.New("a Matrix room ID and positive page limit are required")
+	}
+	started := time.Now()
+	source, err := imp.store.GetOrCreateSource(sourceType, imp.selfUser)
+	if err != nil {
+		return nil, err
+	}
+	sum := &ImportSummary{SourceID: source.ID}
+	// A fresh /sync response covers every joined room and can take minutes on
+	// large archives. /messages without a from token starts at this room's tip.
+	token := ""
+	for pageNumber := 0; pageNumber < pages; pageNumber++ {
+		if err := ctx.Err(); err != nil {
+			return sum, err
+		}
+		page, err := imp.client.Messages(ctx, roomID, token, defaultBackfillPageSize)
+		if err != nil {
+			return sum, err
+		}
+		if err := imp.persistEvents(ctx, source.ID, roomID, "", page.Chunk, sum, opts); err != nil {
+			return sum, err
+		}
+		if page.End == "" || page.End == token || len(page.Chunk) == 0 {
+			break
+		}
+		token = page.End
+	}
+	if err := imp.store.RecomputeConversationStatsForRoom(source.ID, roomID); err != nil {
+		return sum, err
+	}
+	sum.RoomsProcessed = 1
+	sum.Duration = time.Since(started)
+	return sum, nil
+}
+
 func (imp *Importer) resumeState(sourceID int64) (*syncState, error) {
 	if run, err := imp.store.GetLatestCheckpointedSync(sourceID); err == nil && run.CursorBefore.Valid {
 		return loadState(run.CursorBefore.String)

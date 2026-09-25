@@ -400,6 +400,7 @@ records. History pagination and `/sync` cursors are resumable.
 msgvault sync-matrix
 msgvault sync-matrix --backfill-pages 10
 msgvault sync-matrix --full --no-media
+msgvault sync-matrix --reconcile-room '!room:example.org' --backfill-pages 2
 ```
 
 | Flag | Default | Description |
@@ -407,6 +408,7 @@ msgvault sync-matrix --full --no-media
 | `--full` | `false` | Reset cursors and repeat available history backfill |
 | `--backfill-pages` | `0` | Maximum pages per room; zero means all |
 | `--no-media` | `false` | Skip media downloads for this run |
+| `--reconcile-room` | | Replay only this joined room for a bounded number of history pages without resetting the incremental sync cursor; requires `--backfill-pages` greater than zero |
 
 ---
 
