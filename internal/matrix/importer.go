@@ -168,21 +168,10 @@ func (imp *Importer) ReconcileRoom(ctx context.Context, roomID string, pages int
 		return nil, err
 	}
 	sum := &ImportSummary{SourceID: source.ID}
-	response, err := imp.client.Sync(ctx, "", 0)
-	if err != nil {
-		return sum, err
-	}
-	room, joined := response.Rooms.Join[roomID]
-	if !joined {
-		return sum, fmt.Errorf("Matrix archive identity is not joined to room %s", roomID)
-	}
-	rs := &roomState{}
-	imp.applyRoomState(rs, room.State.Events)
-	if err := imp.persistEvents(ctx, source.ID, roomID, rs.Title, room.Timeline.Events, sum, opts); err != nil {
-		return sum, err
-	}
-	token := room.Timeline.PrevBatch
-	for pageNumber := 0; pageNumber < pages && token != ""; pageNumber++ {
+	// A fresh /sync response covers every joined room and can take minutes on
+	// large archives. /messages without a from token starts at this room's tip.
+	token := ""
+	for pageNumber := 0; pageNumber < pages; pageNumber++ {
 		if err := ctx.Err(); err != nil {
 			return sum, err
 		}
@@ -190,7 +179,7 @@ func (imp *Importer) ReconcileRoom(ctx context.Context, roomID string, pages int
 		if err != nil {
 			return sum, err
 		}
-		if err := imp.persistEvents(ctx, source.ID, roomID, rs.Title, page.Chunk, sum, opts); err != nil {
+		if err := imp.persistEvents(ctx, source.ID, roomID, "", page.Chunk, sum, opts); err != nil {
 			return sum, err
 		}
 		if page.End == "" || page.End == token || len(page.Chunk) == 0 {
@@ -198,7 +187,7 @@ func (imp *Importer) ReconcileRoom(ctx context.Context, roomID string, pages int
 		}
 		token = page.End
 	}
-	if err := imp.store.RecomputeConversationStats(source.ID); err != nil {
+	if err := imp.store.RecomputeConversationStatsForRoom(source.ID, roomID); err != nil {
 		return sum, err
 	}
 	sum.RoomsProcessed = 1

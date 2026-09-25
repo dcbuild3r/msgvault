@@ -29,11 +29,16 @@ func TestReconcileRoomRestoresHistoryWithoutChangingIncrementalCursor(t *testing
 				_, _ = w.Write([]byte(`{"next_batch":"s1","rooms":{"join":{"!room:example.test":{"timeline":{"events":[]}}}}}`))
 				return
 			}
-			_, _ = w.Write([]byte(`{"next_batch":"ignored","rooms":{"join":{"!room:example.test":{"state":{"events":[{"type":"m.room.name","content":{"name":"Test Room"}}]},"timeline":{"prev_batch":"back1","events":[]}}}}}`))
+			t.Errorf("room reconciliation unexpectedly requested a full sync")
+			http.Error(w, "unexpected full sync", http.StatusBadRequest)
 		case "/_matrix/client/v3/rooms/!room:example.test/messages":
 			historyPages.Add(1)
+			if r.URL.Query().Get("from") == "" {
+				_, _ = w.Write([]byte(`{"end":"back1","chunk":[{"type":"m.room.message","event_id":"$missing","sender":"@alice:example.test","origin_server_ts":1000,"content":{"msgtype":"m.text","body":"recovered"}}]}`))
+				return
+			}
 			assert.Equal(t, "back1", r.URL.Query().Get("from"))
-			_, _ = w.Write([]byte(`{"end":"","chunk":[{"type":"m.room.message","event_id":"$missing","sender":"@alice:example.test","origin_server_ts":1000,"content":{"msgtype":"m.text","body":"recovered"}}]}`))
+			_, _ = w.Write([]byte(`{"end":"","chunk":[{"type":"m.room.message","event_id":"$older","sender":"@alice:example.test","origin_server_ts":500,"content":{"msgtype":"m.text","body":"older"}}]}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -46,17 +51,17 @@ func TestReconcileRoomRestoresHistoryWithoutChangingIncrementalCursor(t *testing
 	_, err = importer.Sync(context.Background(), msgmatrix.ImportOptions{})
 	require.NoError(t, err)
 	for range 2 {
-		sum, err := importer.ReconcileRoom(context.Background(), "!room:example.test", 1, msgmatrix.ImportOptions{})
+		sum, err := importer.ReconcileRoom(context.Background(), "!room:example.test", 2, msgmatrix.ImportOptions{})
 		require.NoError(t, err)
 		assert.Equal(t, int64(1), sum.RoomsProcessed)
 	}
 	var count int
-	require.NoError(t, st.DB().QueryRow(`SELECT count(*) FROM messages WHERE source_message_id='$missing'`).Scan(&count))
-	assert.Equal(t, 1, count)
+	require.NoError(t, st.DB().QueryRow(`SELECT count(*) FROM messages WHERE source_message_id IN ('$missing', '$older')`).Scan(&count))
+	assert.Equal(t, 2, count)
 	_, err = importer.Sync(context.Background(), msgmatrix.ImportOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), incrementalSyncs.Load())
-	assert.Equal(t, int32(2), historyPages.Load())
+	assert.Equal(t, int32(4), historyPages.Load())
 }
 
 func TestImporterArchivesRawEventAndDeduplicatesByEventID(t *testing.T) {

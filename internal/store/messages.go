@@ -1505,7 +1505,19 @@ func (s *Store) backfillFTSBatch(fromID, toID int64) (int64, error) {
 // last_message_at, and last_message_preview from the current table state.
 // Safe to call multiple times — always produces the same result (idempotent).
 func (s *Store) RecomputeConversationStats(sourceID int64) error {
-	_, err := s.db.Exec(`
+	return s.recomputeConversationStats(sourceID, "")
+}
+
+// RecomputeConversationStatsForRoom limits a repair to one source room.
+func (s *Store) RecomputeConversationStatsForRoom(sourceID int64, roomID string) error {
+	if roomID == "" {
+		return errors.New("room ID is required")
+	}
+	return s.recomputeConversationStats(sourceID, roomID)
+}
+
+func (s *Store) recomputeConversationStats(sourceID int64, roomID string) error {
+	query := `
 		UPDATE conversations SET
 			message_count = (
 				SELECT COUNT(*) FROM messages
@@ -1527,7 +1539,13 @@ func (s *Store) RecomputeConversationStats(sourceID int64) error {
 				LIMIT 1
 			)
 		WHERE source_id = ?
-	`, sourceID)
+	`
+	args := []any{sourceID}
+	if roomID != "" {
+		query += " AND source_conversation_id = ?"
+		args = append(args, roomID)
+	}
+	_, err := s.db.Exec(query, args...)
 	if err != nil {
 		return fmt.Errorf("recompute conversation stats: %w", err)
 	}
