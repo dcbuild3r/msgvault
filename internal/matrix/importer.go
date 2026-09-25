@@ -153,6 +153,59 @@ func (imp *Importer) Sync(ctx context.Context, opts ImportOptions) (sum *ImportS
 	return sum, nil
 }
 
+// ReconcileRoom replays bounded Matrix history for one joined room without
+// changing the incremental /sync cursor. Event IDs make repeated runs safe.
+func (imp *Importer) ReconcileRoom(ctx context.Context, roomID string, pages int, opts ImportOptions) (*ImportSummary, error) {
+	if imp.store == nil || imp.client == nil {
+		return nil, errors.New("Matrix importer requires store and client")
+	}
+	if roomID == "" || pages <= 0 {
+		return nil, errors.New("a Matrix room ID and positive page limit are required")
+	}
+	started := time.Now()
+	source, err := imp.store.GetOrCreateSource(sourceType, imp.selfUser)
+	if err != nil {
+		return nil, err
+	}
+	sum := &ImportSummary{SourceID: source.ID}
+	response, err := imp.client.Sync(ctx, "", 0)
+	if err != nil {
+		return sum, err
+	}
+	room, joined := response.Rooms.Join[roomID]
+	if !joined {
+		return sum, fmt.Errorf("Matrix archive identity is not joined to room %s", roomID)
+	}
+	rs := &roomState{}
+	imp.applyRoomState(rs, room.State.Events)
+	if err := imp.persistEvents(ctx, source.ID, roomID, rs.Title, room.Timeline.Events, sum, opts); err != nil {
+		return sum, err
+	}
+	token := room.Timeline.PrevBatch
+	for pageNumber := 0; pageNumber < pages && token != ""; pageNumber++ {
+		if err := ctx.Err(); err != nil {
+			return sum, err
+		}
+		page, err := imp.client.Messages(ctx, roomID, token, defaultBackfillPageSize)
+		if err != nil {
+			return sum, err
+		}
+		if err := imp.persistEvents(ctx, source.ID, roomID, rs.Title, page.Chunk, sum, opts); err != nil {
+			return sum, err
+		}
+		if page.End == "" || page.End == token || len(page.Chunk) == 0 {
+			break
+		}
+		token = page.End
+	}
+	if err := imp.store.RecomputeConversationStats(source.ID); err != nil {
+		return sum, err
+	}
+	sum.RoomsProcessed = 1
+	sum.Duration = time.Since(started)
+	return sum, nil
+}
+
 func (imp *Importer) resumeState(sourceID int64) (*syncState, error) {
 	if run, err := imp.store.GetLatestCheckpointedSync(sourceID); err == nil && run.CursorBefore.Valid {
 		return loadState(run.CursorBefore.String)

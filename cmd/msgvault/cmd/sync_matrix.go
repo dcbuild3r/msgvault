@@ -14,6 +14,7 @@ var (
 	syncMatrixFull          bool
 	syncMatrixBackfillPages int
 	syncMatrixNoMedia       bool
+	syncMatrixReconcileRoom string
 )
 
 func newSyncMatrixCmd() *cobra.Command {
@@ -25,18 +26,31 @@ func newSyncMatrixCmd() *cobra.Command {
 			if !isDaemonCLISubprocess() {
 				return runDaemonCLICommandHTTPFromCobra(cmd, args)
 			}
+			if syncMatrixReconcileRoom != "" {
+				if !cmd.Flags().Changed("backfill-pages") || syncMatrixBackfillPages <= 0 {
+					return fmt.Errorf("--reconcile-room requires --backfill-pages greater than zero")
+				}
+				if syncMatrixFull {
+					return fmt.Errorf("--reconcile-room cannot be combined with --full")
+				}
+			}
 			imp, dbPath, cleanup, err := openMatrixImporter()
 			if err != nil {
 				return err
 			}
 			defer cleanup()
-			ctx, stop := withInterruptCancel(cmd, "\nInterrupted. Matrix cursor has been checkpointed.")
+			ctx, stop := withInterruptCancel(cmd, "\nInterrupted. Matrix progress is safe to retry.")
 			defer stop()
 			opts := matrixImportOptions()
 			opts.Full = syncMatrixFull
 			opts.BackfillLimit = syncMatrixBackfillPages
 			opts.NoMedia = opts.NoMedia || syncMatrixNoMedia
-			sum, err := imp.Sync(ctx, opts)
+			var sum *msgmatrix.ImportSummary
+			if syncMatrixReconcileRoom != "" {
+				sum, err = imp.ReconcileRoom(ctx, syncMatrixReconcileRoom, syncMatrixBackfillPages, opts)
+			} else {
+				sum, err = imp.Sync(ctx, opts)
+			}
 			rebuildCacheAfterWrite(dbPath)
 			if err != nil {
 				return err
@@ -48,6 +62,7 @@ func newSyncMatrixCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&syncMatrixFull, "full", false, "reset stored cursors and repeat the available history backfill")
 	cmd.Flags().IntVar(&syncMatrixBackfillPages, "backfill-pages", 0, "maximum history pages per room this run (0 = all)")
 	cmd.Flags().BoolVar(&syncMatrixNoMedia, "no-media", false, "skip Matrix media downloads for this run")
+	cmd.Flags().StringVar(&syncMatrixReconcileRoom, "reconcile-room", "", "replay one joined room without resetting incremental cursors (requires --backfill-pages)")
 	return cmd
 }
 
