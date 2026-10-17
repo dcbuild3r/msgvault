@@ -333,6 +333,10 @@ type GetMessageInlinePartErrorResponseJSON501 = ErrorResponse
 
 type GetMessageInlinePartErrorResponseJSON503 = ErrorResponse
 
+type UpdateEmailStateResponse = EmailActionResponse
+
+type UpdateEmailStateErrorResponse = ErrorResponse
+
 type RunQueryResponse = QueryResult
 
 type RunQueryErrorResponse = ErrorResponse
@@ -855,6 +859,13 @@ type GetMessageInlinePartResp struct {
 	JSON500      *GetMessageInlinePartErrorResponseJSON500
 	JSON501      *GetMessageInlinePartErrorResponseJSON501
 	JSON503      *GetMessageInlinePartErrorResponseJSON503
+}
+
+type UpdateEmailStateResp struct {
+	HTTPResponse *http.Response
+	Body         []byte
+	StatusCode   int
+	JSON200      *UpdateEmailStateResponse
 }
 
 type RunQueryResp struct {

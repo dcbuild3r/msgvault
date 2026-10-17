@@ -1846,6 +1846,50 @@ func (o *GetMessageInlinePartRequestOptions) GetHeader() (map[string]string, err
 	return nil, nil
 }
 
+// UpdateEmailStateRequestOptions is the options needed to make a request to UpdateEmailState.
+type UpdateEmailStateRequestOptions struct {
+	Body *UpdateEmailStateBody
+}
+
+// Validate validates all the fields in the options.
+// Use it if fields validation was not run.
+func (o *UpdateEmailStateRequestOptions) Validate() error {
+	var errors runtime.ValidationErrors
+
+	if o.Body != nil {
+		if v, ok := any(o.Body).(runtime.Validator); ok {
+			if err := v.Validate(); err != nil {
+				errors = errors.Append("Body", err)
+			}
+		}
+	}
+	if len(errors) == 0 {
+		return nil
+	}
+
+	return errors
+}
+
+// GetPathParams returns the path params as a map.
+func (o *UpdateEmailStateRequestOptions) GetPathParams() (map[string]any, error) {
+	return nil, nil
+}
+
+// GetQuery returns the query params as a map.
+func (o *UpdateEmailStateRequestOptions) GetQuery() (map[string]any, error) {
+	return nil, nil
+}
+
+// GetBody returns the payload in any type that can be marshalled to JSON by the client.
+func (o *UpdateEmailStateRequestOptions) GetBody() any {
+	return o.Body
+}
+
+// GetHeader returns the headers as a map.
+func (o *UpdateEmailStateRequestOptions) GetHeader() (map[string]string, error) {
+	return nil, nil
+}
+
 // RunQueryRequestOptions is the options needed to make a request to RunQuery.
 type RunQueryRequestOptions struct {
 	Body *RunQueryBody

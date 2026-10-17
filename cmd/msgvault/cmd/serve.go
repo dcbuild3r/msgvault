@@ -367,9 +367,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Create and start API server
 	apiOpts := api.ServerOptions{
-		Config: cfg,
-		Store:  storeAdapter,
-		Engine: engine,
+		EmailAction: emailActionWriter(s, getOAuthMgr),
+		Config:      cfg,
+		Store:       storeAdapter,
+		Engine:      engine,
 		SQLQueryRunner: func(ctx context.Context, sql string) (*query.QueryResult, error) {
 			return runDaemonSQLQuery(ctx, cfg, s, engine, sql)
 		},

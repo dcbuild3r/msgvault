@@ -235,6 +235,10 @@ type ClientInterface interface {
 	GetMessageInlinePart(ctx context.Context, options *GetMessageInlinePartRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetMessageInlinePartResponse, error)
 	GetMessageInlinePartWithResponse(ctx context.Context, options *GetMessageInlinePartRequestOptions, reqEditors ...runtime.RequestEditorFn) (*GetMessageInlinePartResp, error)
 
+	// UpdateEmailState Update reversible Gmail mailbox state
+	UpdateEmailState(ctx context.Context, options *UpdateEmailStateRequestOptions, reqEditors ...runtime.RequestEditorFn) (*UpdateEmailStateResponse, error)
+	UpdateEmailStateWithResponse(ctx context.Context, options *UpdateEmailStateRequestOptions, reqEditors ...runtime.RequestEditorFn) (*UpdateEmailStateResp, error)
+
 	// RunQuery Run an aggregate query
 	RunQuery(ctx context.Context, options *RunQueryRequestOptions, reqEditors ...runtime.RequestEditorFn) (*RunQueryResponse, error)
 	RunQueryWithResponse(ctx context.Context, options *RunQueryRequestOptions, reqEditors ...runtime.RequestEditorFn) (*RunQueryResp, error)
@@ -3404,6 +3408,70 @@ func (c *Client) GetMessageInlinePart(ctx context.Context, options *GetMessageIn
 	}
 
 	resp, err := c.apiClient.ExecuteRequest(ctx, req, "/api/v1/messages/{id}/inline")
+	if err != nil {
+		return nil, fmt.Errorf("error executing request: %w", err)
+	}
+	return responseParser(ctx, resp)
+}
+
+// UpdateEmailState Update reversible Gmail mailbox state
+func (c *Client) UpdateEmailState(ctx context.Context, options *UpdateEmailStateRequestOptions, reqEditors ...runtime.RequestEditorFn) (*UpdateEmailStateResponse, error) {
+	var err error
+	reqParams := runtime.RequestOptionsParameters{
+		RequestURL:  c.apiClient.GetBaseURL() + "/api/v1/messages/{id}/state",
+		Method:      "POST",
+		Options:     options,
+		ContentType: "application/json",
+	}
+
+	req, err := c.apiClient.CreateRequest(ctx, reqParams, reqEditors...)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	responseParser := func(ctx context.Context, resp *runtime.Response) (*UpdateEmailStateResponse, error) {
+		bodyBytes := resp.Content
+		if resp.StatusCode != 200 {
+			target := new(UpdateEmailStateErrorResponse)
+			// Handle empty error response body gracefully - skip unmarshal if no content
+			if len(bodyBytes) > 0 {
+				if err = json.Unmarshal(bodyBytes, target); err != nil {
+					return nil, &runtime.ResponseDecodeError{
+						StatusCode:    resp.StatusCode,
+						ContentType:   resp.Headers.Get("Content-Type"),
+						ContentLength: len(bodyBytes),
+						TargetType:    "UpdateEmailStateErrorResponse",
+						Body:          bodyBytes,
+						Err:           err,
+					}
+				}
+			}
+			// Return error with (possibly empty) target
+			if errTarget, ok := any(*target).(error); ok {
+				return nil, runtime.NewClientAPIError(errTarget, runtime.WithStatusCode(resp.StatusCode))
+			}
+			return nil, runtime.NewClientAPIError(fmt.Errorf("API error (status %d): %v", resp.StatusCode, *target),
+				runtime.WithStatusCode(resp.StatusCode))
+		}
+		target := new(UpdateEmailStateResponse)
+		// Handle empty response body gracefully
+		if len(bodyBytes) == 0 {
+			return target, nil
+		}
+		if err = json.Unmarshal(bodyBytes, target); err != nil {
+			return nil, &runtime.ResponseDecodeError{
+				StatusCode:    resp.StatusCode,
+				ContentType:   resp.Headers.Get("Content-Type"),
+				ContentLength: len(bodyBytes),
+				TargetType:    "UpdateEmailStateResponse",
+				Body:          bodyBytes,
+				Err:           err,
+			}
+		}
+		return target, nil
+	}
+
+	resp, err := c.apiClient.ExecuteRequest(ctx, req, "/api/v1/messages/{id}/state")
 	if err != nil {
 		return nil, fmt.Errorf("error executing request: %w", err)
 	}

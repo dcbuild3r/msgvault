@@ -1098,6 +1098,28 @@ components:
         - description
         - message_count
       type: object
+    EmailActionRequest:
+      additionalProperties: false
+      properties:
+        archived:
+          type: boolean
+        read:
+          type: boolean
+        starred:
+          type: boolean
+        trashed:
+          type: boolean
+      type: object
+    EmailActionResponse:
+      properties:
+        labels:
+          items:
+            type: string
+          nullable: true
+          type: array
+      required:
+        - labels
+      type: object
     ErrorResponse:
       properties:
         error:
@@ -4500,6 +4522,33 @@ paths:
       security:
         - apiKey: []
       summary: Get an inline MIME part
+      tags:
+        - API
+  /api/v1/messages/{id}/state:
+    post:
+      operationId: updateEmailState
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailActionRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailActionResponse"
+          description: OK
+        default:
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+          description: Error
+      security:
+        - apiKey: []
+      summary: Update reversible Gmail mailbox state
       tags:
         - API
   /api/v1/query:

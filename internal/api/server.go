@@ -126,6 +126,7 @@ type AttachmentBlobStore interface {
 
 // Server represents the HTTP API server.
 type Server struct {
+	emailAction    EmailAction
 	cfg            *config.Config
 	store          MessageStore
 	engine         query.Engine // Query engine for aggregates and TUI support
@@ -224,6 +225,7 @@ const (
 
 // ServerOptions configures the API server.
 type ServerOptions struct {
+	EmailAction    EmailAction
 	Config         *config.Config
 	Store          MessageStore
 	Engine         query.Engine // Optional: query engine for aggregates and TUI support
@@ -298,6 +300,7 @@ func NewServerWithOptions(opts ServerOptions) *Server {
 		idleTracker:         opts.IdleTracker,
 		operationGate:       opts.OperationGate,
 		blobStore:           opts.BlobStore,
+		emailAction:         opts.EmailAction,
 	}
 	s.vectorStatus = opts.VectorStatus
 	if s.vectorStatus == "" {

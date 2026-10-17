@@ -949,6 +949,21 @@ func (d DeletionManifestSummary) Validate() error {
 	return runtime.ConvertValidatorError(typesValidator.Struct(d))
 }
 
+type EmailActionRequest struct {
+	Archived *bool `json:"archived,omitempty"`
+	Read     *bool `json:"read,omitempty"`
+	Starred  *bool `json:"starred,omitempty"`
+	Trashed  *bool `json:"trashed,omitempty"`
+}
+
+type EmailActionResponse struct {
+	Labels []string `json:"labels,omitempty" validate:"required"`
+}
+
+func (e EmailActionResponse) Validate() error {
+	return runtime.ConvertValidatorError(typesValidator.Struct(e))
+}
+
 type ErrorResponse struct {
 	ErrorData string  `json:"error" validate:"required"`
 	Message   *string `json:"message,omitempty"`
