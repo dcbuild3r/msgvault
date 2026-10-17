@@ -65,15 +65,16 @@ func (a *AnalyticsConfig) Validate() error {
 
 // ServerConfig holds HTTP API server configuration.
 type ServerConfig struct {
-	APIPort           int           `toml:"api_port"`            // HTTP server port; 0 (the default) auto-selects an open port at daemon startup and clients discover it via the daemon runtime record. Set api_port explicitly for a stable port (e.g. remote/NAS deployments).
-	BindAddr          string        `toml:"bind_addr"`           // Bind address (default: 127.0.0.1)
-	APIKey            string        `toml:"api_key"`             // API authentication key
-	AllowInsecure     bool          `toml:"allow_insecure"`      // Allow unauthenticated non-loopback access
-	CORSOrigins       []string      `toml:"cors_origins"`        // Allowed CORS origins (empty = disabled)
-	CORSCredentials   bool          `toml:"cors_credentials"`    // Allow credentials in CORS
-	CORSMaxAge        int           `toml:"cors_max_age"`        // Preflight cache duration in seconds
-	DaemonIdleTimeout time.Duration `toml:"daemon_idle_timeout"` // Background daemon idle timeout (0 disables)
-	DaemonAutoRestart string        `toml:"daemon_auto_restart"` // never, newer, or always
+	EmailActionAPIKey string        `toml:"email_action_api_key"` // Optional credential limited to reversible mailbox actions
+	APIPort           int           `toml:"api_port"`             // HTTP server port; 0 (the default) auto-selects an open port at daemon startup and clients discover it via the daemon runtime record. Set api_port explicitly for a stable port (e.g. remote/NAS deployments).
+	BindAddr          string        `toml:"bind_addr"`            // Bind address (default: 127.0.0.1)
+	APIKey            string        `toml:"api_key"`              // API authentication key
+	AllowInsecure     bool          `toml:"allow_insecure"`       // Allow unauthenticated non-loopback access
+	CORSOrigins       []string      `toml:"cors_origins"`         // Allowed CORS origins (empty = disabled)
+	CORSCredentials   bool          `toml:"cors_credentials"`     // Allow credentials in CORS
+	CORSMaxAge        int           `toml:"cors_max_age"`         // Preflight cache duration in seconds
+	DaemonIdleTimeout time.Duration `toml:"daemon_idle_timeout"`  // Background daemon idle timeout (0 disables)
+	DaemonAutoRestart string        `toml:"daemon_auto_restart"`  // never, newer, or always
 }
 
 func (s *ServerConfig) ApplyDefaults() {

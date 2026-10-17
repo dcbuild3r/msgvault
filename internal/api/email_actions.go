@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 // EmailActionRequest contains only reversible provider mailbox changes.
@@ -56,4 +57,21 @@ func (s *Server) handleEmailAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, EmailActionResponse{Labels: labels})
+}
+
+// Match the only operation available to the optional mailbox credential.
+func isEmailActionRequest(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	path, ok := strings.CutPrefix(r.URL.Path, "/api/v1/messages/")
+	if !ok {
+		return false
+	}
+	id, ok := strings.CutSuffix(path, "/state")
+	if !ok {
+		return false
+	}
+	number, err := strconv.ParseInt(id, 10, 64)
+	return err == nil && number > 0
 }

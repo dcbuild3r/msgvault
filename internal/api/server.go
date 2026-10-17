@@ -694,7 +694,11 @@ func (s *Server) apiRequestAuthorized(r *http.Request) bool {
 		authHeader = authHeader[7:]
 	}
 
-	return subtle.ConstantTimeCompare([]byte(authHeader), []byte(s.cfg.Server.APIKey)) == 1
+	if subtle.ConstantTimeCompare([]byte(authHeader), []byte(s.cfg.Server.APIKey)) == 1 {
+		return true
+	}
+	return s.cfg.Server.EmailActionAPIKey != "" && isEmailActionRequest(r) &&
+		subtle.ConstantTimeCompare([]byte(authHeader), []byte(s.cfg.Server.EmailActionAPIKey)) == 1
 }
 
 func (s *Server) logUnauthorizedAPIRequest(r *http.Request) {
